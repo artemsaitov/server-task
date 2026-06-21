@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Box,
   Button,
@@ -8,7 +9,13 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { deleteTask, updateTask } from "../api/tasksApi";
+import {
+  deleteTask,
+  getUploadUrl,
+  processImage,
+  updateTask,
+  uploadImageToS3,
+} from "../api/tasksApi";
 import { Task } from "../types/Task";
 
 interface TaskListProps {
@@ -22,6 +29,11 @@ export default function TaskList({
   onTaskUpdated,
   onTaskDeleted,
 }: TaskListProps) {
+  const [selectedFiles, setSelectedFiles] = useState<Record<string, File | null>>(
+    {}
+  );
+  const [uploadingTaskId, setUploadingTaskId] = useState<string | null>(null);
+
   const handleStatusChange = async (
     task: Task,
     status: "OPEN" | "IN_PROGRESS" | "COMPLETED"
@@ -52,6 +64,45 @@ export default function TaskList({
     } catch (error) {
       console.error("Error deleting task:", error);
       alert("Failed to delete task");
+    }
+  };
+
+  const handleFileChange = (taskId: string, file: File | null) => {
+    setSelectedFiles((currentFiles) => ({
+      ...currentFiles,
+      [taskId]: file,
+    }));
+  };
+
+  const handleUploadAndAnalyze = async (task: Task) => {
+    const file = selectedFiles[task.taskId];
+
+    if (!file) {
+      alert("Please choose an image first");
+      return;
+    }
+
+    try {
+      setUploadingTaskId(task.taskId);
+
+      const uploadUrlResponse = await getUploadUrl(
+        task.taskId,
+        file.name,
+        file.type
+      );
+
+      await uploadImageToS3(uploadUrlResponse.uploadUrl, file);
+
+      const updatedTask = await processImage(task.taskId);
+
+      onTaskUpdated(updatedTask);
+
+      alert("Image uploaded and analyzed successfully");
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      alert("Failed to upload and analyze image");
+    } finally {
+      setUploadingTaskId(null);
     }
   };
 
@@ -106,6 +157,31 @@ export default function TaskList({
                     ))}
                   </Box>
                 )}
+
+                <Box sx={{ mt: 2 }}>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) =>
+                      handleFileChange(
+                        task.taskId,
+                        event.target.files ? event.target.files[0] : null
+                      )
+                    }
+                  />
+
+                  <Button
+                    variant="contained"
+                    size="small"
+                    sx={{ mt: 1, display: "block" }}
+                    onClick={() => handleUploadAndAnalyze(task)}
+                    disabled={uploadingTaskId === task.taskId}
+                  >
+                    {uploadingTaskId === task.taskId
+                      ? "Uploading..."
+                      : "Upload & Analyze Image"}
+                  </Button>
+                </Box>
               </Box>
 
               <Box
